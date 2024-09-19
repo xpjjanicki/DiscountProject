@@ -1,0 +1,164 @@
+﻿@page "/"
+@inject NavigationManager NavigationManager
+@rendermode InteractiveWebAssembly
+
+<h3>Discount Codes</h3>
+
+<div class="container">
+    <div class="row">
+        <div class="col-md-6">
+            <h2>DISCOUNT code generation</h2>
+            <EditForm Model="@GenerateModel" id="frmGenerate">
+                @if (IsConnectedGenerate)
+                {
+                    <div class="form-group">
+                        <label>
+                            Count:
+                            <input type="text" @bind="strCount" placeholder="Count" />
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            Lenght:
+                            <input type="text" @bind="strLength" placeholder="Length" />
+                        </label>
+                    </div>
+
+                    <button @onclick="BtnGenerateCode" disabled="@(!IsConnectedGenerate)">Send</button>
+
+                    <div class="form-group">
+                        <p>Response: @GenerateMessage</p>
+                    </div>
+                }
+                else
+                {
+                    <span>Connecting...</span>
+                }
+            </EditForm>
+        </div>
+
+        <div class="col-md-6">
+            <h2>DISCOUNT code usage</h2>
+            <EditForm Model="@UseModel" id="frmUsage">
+                @if (IsConnectedUse)
+                {
+                    <div class="form-group">
+                        <label>
+                            Enter the code:
+                            <input type="text" @bind="Code" placeholder="Code" />
+                        </label>
+                    </div>
+
+                    <button @onclick="BtnUseCode" disabled="@(!IsConnectedUse)">Send</button>
+
+                    <div class="form-group">
+                        <p>Response: @UseMessage</p>
+                    </div>
+                }
+                else
+                {
+                    <span>Connecting...</span>
+                }
+            </EditForm>
+        </div>
+    </div>
+</div>
+
+@code {
+    private HubConnection? hubGenerateConnection;
+    private HubConnection? hubUseConnection;
+    private string GenerateMessage = string.Empty;
+    private string UseMessage = string.Empty;
+    private string? strCount;
+    private string? strLength;
+    private string? Code;
+
+    private GenerateModel GenerateModel = new();
+    private UseModel UseModel = new();
+
+
+
+    private async Task RunGenerateHub() // initialized
+    {
+        hubGenerateConnection = new HubConnectionBuilder()
+            .WithUrl(NavigationManager.ToAbsoluteUri("/discounthub"))
+            .Build();
+
+        hubGenerateConnection.On<bool>("ReceiveGenerate", (result) =>
+        {
+            GenerateMessage = result.ToString();
+            InvokeAsync(StateHasChanged);
+        });
+
+        await hubGenerateConnection.StartAsync();
+    }
+
+    private async Task RunUseHub() // initialized
+    {
+        hubUseConnection = new HubConnectionBuilder()
+            .WithUrl(NavigationManager.ToAbsoluteUri("/discounthub"))
+            .Build();
+
+        hubUseConnection.On<byte>("ReceiveUse", (result) =>
+        {
+            UseMessage = result.ToString();
+            InvokeAsync(StateHasChanged);
+        });
+
+        await hubUseConnection.StartAsync();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RunGenerateHub();
+        await RunUseHub();
+    }
+
+
+
+    private async Task BtnGenerateCode()
+    {
+        ushort count;
+        bool ifCount = ushort.TryParse(strCount, out count);
+
+        byte length;
+        bool ifLength = byte.TryParse(strLength, out length);
+
+        if (!ifCount && !ifLength)
+            return;
+
+        if (hubGenerateConnection is not null)
+        {
+            GenerateModel model = new GenerateModel(count, length);
+            await hubGenerateConnection.SendAsync("GenerateCode", model);
+        }
+    }
+
+    private async Task BtnUseCode()
+    {
+        if (string.IsNullOrWhiteSpace(Code))
+            return;
+
+        if (hubUseConnection is not null)
+        {
+            UseModel model = new UseModel(Code);
+            await hubUseConnection.SendAsync("UseCode", model);
+        }
+    }
+
+
+
+    public bool IsConnectedGenerate =>
+            hubGenerateConnection?.State == HubConnectionState.Connected;
+
+    public bool IsConnectedUse =>
+            hubUseConnection?.State == HubConnectionState.Connected;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubGenerateConnection is not null)
+            await hubGenerateConnection.DisposeAsync();
+        if (hubUseConnection is not null)
+            await hubUseConnection.DisposeAsync();
+    }
+}
